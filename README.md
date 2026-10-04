@@ -12,11 +12,11 @@ These ideas come up all the time in backend work and in system-design interviews
 
 | # | Project | Idea it covers | Run it |
 |---|---|---|---|
-| 1 | [Rate limiter Vs Buckets](Rate%20limiter%20Vs%20Buckets/) | Protecting a login API from password guessing: fixed window counter, its boundary problem, token bucket, shared Redis state | `python3 simulate.py` |
+| 1 | [fixed-window-vs-token-bucket](fixed-window-vs-token-bucket/) | Protecting a login API from password guessing: fixed window counter, its boundary problem, token bucket, shared Redis state | `python3 simulate.py` |
 
 New projects get a row in this table and a short section below when they are added.
 
-### 1. Rate limiter Vs Buckets
+### 1. fixed-window-vs-token-bucket
 
 **What it is.** A live terminal demo of a login API under a password-guessing attack, defended by two different rate limiters.
 
@@ -31,7 +31,7 @@ New projects get a row in this table and a short section below when they are add
 
 After each act it stops on a summary and waits for Enter.
 
-**Read more.** The [project README](Rate%20limiter%20Vs%20Buckets/README.md) explains every idea in detail and walks through the simulation with screenshots.
+**Read more.** The [project README](fixed-window-vs-token-bucket/README.md) explains every idea in detail and walks through the simulation with screenshots.
 
 ## How each project is laid out
 
@@ -50,7 +50,7 @@ You need Python 3 (tested on 3.12) and the [`rich`](https://github.com/Textualiz
 
 ```bash
 pip install rich
-cd "Rate limiter Vs Buckets"
+cd fixed-window-vs-token-bucket
 python3 simulate.py
 ```
 

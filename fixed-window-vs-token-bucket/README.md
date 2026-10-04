@@ -1,4 +1,4 @@
-# Rate limiter Vs Buckets
+# Fixed window vs token bucket
 
 How do you stop someone from guessing passwords on a login API? You limit how many attempts each user gets. This project explains the two classic ways to do that, shows where the simple one breaks, and lets you watch all of it happen in a terminal.
 
