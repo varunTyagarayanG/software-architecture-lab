@@ -1,4 +1,4 @@
-# C-Projects
+# Software Architecture Lab
 
 Small, self-contained projects that each take one backend or system-design idea and make it visible: a plain-language explanation, plus a simulation you run in a terminal and watch.
 
