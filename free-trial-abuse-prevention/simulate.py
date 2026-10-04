@@ -13,6 +13,8 @@ Four acts run the same ten signups past four different policies:
 After each act the show stops on a summary of what just happened and
 waits for Enter before it moves on.
 
+It asks how you want to watch: step by step, normal, slow or fast.
+
 Run:  python simulate.py              full show, Enter between acts
       python simulate.py --auto       no stops, plays straight through
       python simulate.py 1 3          only these acts
@@ -55,6 +57,8 @@ except ImportError:
 CHALLENGE_AT, DENY_AT = 40, 70  # risk score bands used in acts 3 and 4
 BURST = 3                       # signups from one network in an hour before it counts
 MAX_RISK = 100                  # the score is capped, so the meter always fits
+
+TITLE = "FREE TRIAL · ONE PER PERSON"
 
 MIN_WIDTH, MIN_HEIGHT = 80, 24
 FPS = 24
@@ -246,18 +250,96 @@ def silent_keyboard() -> Iterator[None]:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
-def wait_for_enter(redraw: Callable[[], None]) -> None:
-    """Block until Enter, redrawing meanwhile so the prompt blinks and resizes show."""
+def wait_for_enter(redraw: Callable[[], None], *, flush: bool = True) -> None:
+    """Block until Enter, redrawing meanwhile so the prompt blinks and resizes show.
+
+    `flush` drops anything typed earlier, so a key pressed while an act was
+    playing cannot skip past its summary. Stepping turns that off, so the
+    viewer can hold Enter down and move along.
+    """
     if termios is None:
         redraw()
         sys.stdin.readline()
         return
     fd = sys.stdin.fileno()
-    termios.tcflush(fd, termios.TCIFLUSH)  # keys hit while the act was playing don't count
+    if flush:
+        termios.tcflush(fd, termios.TCIFLUSH)
     while True:
         redraw()
         if select.select([fd], [], [], 0.1)[0] and os.read(fd, 1) in (b"\n", b"\r", b""):
             return
+
+
+# --- How to watch -----------------------------------------------------------
+
+@dataclass(frozen=True)
+class Mode:
+    """One way of playing the show, offered on the menu at startup."""
+
+    key: str
+    name: str
+    hint: str
+    speed: float
+    stepping: bool
+
+
+MODES = [
+    Mode("1", "Step by step", "every step waits for Enter", 1.0, True),
+    Mode("2", "Normal", "plays itself", 1.0, False),
+    Mode("3", "Slow", "half speed", 0.5, False),
+    Mode("4", "Fast", "double speed", 2.0, False),
+]
+DEFAULT_MODE = MODES[1]
+
+
+def menu(rehearsal: "Show") -> RenderableType:
+    """The opening screen, with how long each mode will take."""
+    rows = Table.grid(padding=(0, 2))
+    rows.add_column(style=f"bold {ACCENT}", no_wrap=True)
+    rows.add_column(style="bold", no_wrap=True)
+    rows.add_column(style="dim")
+    rows.add_column(justify="right", style="dim", no_wrap=True)
+    for mode in MODES:
+        length = f"{rehearsal.step_no} steps" if mode.stepping else f"about {mmss(rehearsal.elapsed / mode.speed)}"
+        rows.add_row(mode.key, mode.name, mode.hint, length)
+    return Panel(
+        Group(
+            Text("How do you want to watch?", style="bold"),
+            Text(),
+            rows,
+            Text(),
+            Text("Every mode stops on a summary after each act.", style="dim"),
+            Text.from_markup(f"[dim]Press 1-4, or Enter for {DEFAULT_MODE.name}.  Ctrl+C to quit.[/]"),
+        ),
+        title=f"[bold {ACCENT}]{TITLE}[/]",
+        title_align="left",
+        border_style=ACCENT,
+        padding=(1, 2),
+        expand=False,
+    )
+
+
+def choose_mode(console: Console, rehearsal: "Show") -> Mode:
+    """Show the menu and wait for a choice."""
+    console.print(menu(rehearsal))
+    keys = {mode.key: mode for mode in MODES}
+    if termios is None:  # Windows: read a whole line instead of one key
+        try:
+            return keys.get(input("  > ").strip(), DEFAULT_MODE)
+        except EOFError:
+            return DEFAULT_MODE
+    with silent_keyboard():
+        while True:
+            if not select.select([sys.stdin], [], [], 0.2)[0]:
+                continue
+            key = os.read(sys.stdin.fileno(), 1)
+            if key in (b"\n", b"\r", b""):
+                return DEFAULT_MODE
+            if key == b"\x03":
+                raise KeyboardInterrupt
+            chosen = keys.get(key.decode("utf-8", "ignore"))
+            if chosen:
+                return chosen
 
 
 # --- The show ---------------------------------------------------------------
@@ -277,11 +359,15 @@ class Show:
     is how the real run knows its total length for the progress bar.
     """
 
-    def __init__(self, console: Console, speed: float = 1.0, total: float = 0.0, stops: bool = False) -> None:
+    def __init__(self, console: Console, speed: float = 1.0, total: float = 0.0,
+                 stops: bool = False, stepping: bool = False) -> None:
         self.console = console
         self.speed = speed
         self.total = total
-        self.stops = stops  # stop on a summary after each act and wait for Enter
+        self.stops = stops        # stop on a summary after each act and wait for Enter
+        self.stepping = stepping  # wait for Enter at every step, not just between acts
+        self.steps = 0            # how many steps the whole show takes
+        self.step_no = 0          # how many have gone by
         self.recap: Recap | None = None
         self.following = ""
         self.live: Live | None = None
@@ -305,6 +391,12 @@ class Show:
         """Hold the current picture for `seconds` of show time."""
         seconds *= PACE
         start = self.elapsed
+        self.step_no += 1
+        if self.live is not None and self.stepping:
+            live = self.live
+            self.elapsed = start + seconds
+            wait_for_enter(lambda: live.update(self.render(), refresh=True), flush=False)
+            return
         if self.live is not None:
             deadline = time.monotonic() + seconds / self.speed
             while True:
@@ -396,7 +488,7 @@ class Show:
         top.add_column()
         top.add_column(justify="right")
         top.add_row(
-            Text(" FREE TRIAL · ONE PER PERSON", style="bold"),
+            Text(f" {TITLE}", style="bold"),
             Text("10 signups · 6 entitled, 4 repeats ", style="dim"),
         )
 
@@ -413,9 +505,15 @@ class Show:
         progress = Table.grid(expand=True, padding=(0, 1))
         progress.add_column(ratio=1)
         progress.add_column(no_wrap=True)
+        if self.stepping:
+            done, whole = float(self.step_no), float(self.steps or 1)
+            readout = f"step {self.step_no} / {self.steps}"
+        else:
+            done, whole = self.elapsed, self.total or 1
+            readout = f"{mmss(self.elapsed / self.speed)} / {mmss(self.total / self.speed)}"
         progress.add_row(
-            ProgressBar(total=self.total or 1, completed=self.elapsed, complete_style=ACCENT, finished_style=ACCENT),
-            Text(f"{mmss(self.elapsed / self.speed)} / {mmss(self.total / self.speed)}", style="dim"),
+            ProgressBar(total=whole, completed=done, complete_style=ACCENT, finished_style=ACCENT),
+            Text(readout, style="dim"),
         )
         return Group(top, steps, Padding(progress, (0, 1)))
 
@@ -441,7 +539,8 @@ class Show:
         leaked.append(f"{self.leaked:<2}", style=f"bold {BAD}" if self.leaked else "bold dim")
 
         if self.verdict is None:
-            verdict, border = Text("│ watching…", style="dim"), "dim"
+            waiting = "ENTER for the next step" if self.stepping else "watching…"
+            verdict, border = Text(f"│ {waiting}", style="dim"), "dim"
         else:
             ok, text = self.verdict
             border = OK if ok else BAD
@@ -899,10 +998,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Live terminal demo: stopping free trial abuse.")
     parser.add_argument("acts", nargs="*", type=int, choices=range(1, len(ACTS) + 1), metavar="ACT",
                         help="acts to play, 1-4 (default: the full show)")
-    parser.add_argument("--speed", type=float, default=1.0, help="playback speed, e.g. 0.5 or 2 (default: 1)")
-    parser.add_argument("--auto", action="store_true", help="don't stop for Enter after each act")
+    parser.add_argument("--speed", type=float, default=None, help="playback speed, e.g. 0.5 or 2 (skips the menu)")
+    parser.add_argument("--step", action="store_true", help="wait for Enter at every step (skips the menu)")
+    parser.add_argument("--auto", action="store_true", help="don't stop for Enter at all")
     args = parser.parse_args()
-    if args.speed <= 0:
+    if args.speed is not None and args.speed <= 0:
         parser.error("--speed must be greater than 0")
 
     def play(show: Show) -> None:
@@ -929,7 +1029,20 @@ def main() -> int:
         return 1
 
     stops = not args.auto and sys.stdin.isatty()
-    show = Show(console, speed=args.speed, total=rehearsal.elapsed, stops=stops)
+    if args.auto:
+        mode = Mode("", "auto", "", args.speed or 1.0, False)
+    elif args.step:
+        mode = MODES[0]
+    elif args.speed is not None:
+        mode = Mode("", "custom", "", args.speed, False)
+    elif stops:
+        mode = choose_mode(console, rehearsal)
+    else:
+        mode = DEFAULT_MODE
+
+    show = Show(console, speed=mode.speed, total=rehearsal.elapsed, stops=stops,
+                stepping=mode.stepping and stops)
+    show.steps = rehearsal.step_no
     try:
         with silent_keyboard(), Live(console=console, screen=True, auto_refresh=False) as live:
             show.live = live

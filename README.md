@@ -90,4 +90,15 @@ cd fixed-window-vs-token-bucket      # or any other project folder
 python3 simulate.py
 ```
 
-Use a terminal window of at least 80 columns by 24 rows. A project's own README lists its options.
+Use a terminal window of at least 80 columns by 24 rows.
+
+Every simulation opens the same way, by asking how you want to watch it:
+
+```text
+ 1  Step by step  every step waits for Enter
+ 2  Normal        plays itself
+ 3  Slow          half speed
+ 4  Fast          double speed
+```
+
+Whichever you pick, the show stops on a summary after each act until you press Enter. A project's own README lists the rest of its options.

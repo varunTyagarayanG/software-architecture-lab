@@ -33,7 +33,9 @@ pip install rich
 python3 simulate.py
 ```
 
-You need Python 3 (tested on 3.12) and a terminal of at least 80 columns by 24 rows. The show plays four acts. After each one it stops on a summary and waits for you to press Enter.
+You need Python 3 (tested on 3.12) and a terminal of at least 80 columns by 24 rows.
+
+It opens by asking how you want to watch — one step at a time, or playing itself at normal, slow or fast speed. Whichever you pick, the show plays four acts and stops on a summary after each one until you press Enter.
 
 ## The problem
 
@@ -227,11 +229,25 @@ The last screen compares all four policies and stays in your terminal after the 
 
 ## Options
 
+Run it with no arguments and it asks how you want to watch:
+
+```text
+ 1  Step by step  every step waits for Enter    121 steps
+ 2  Normal        plays itself                about 01:23
+ 3  Slow          half speed                  about 02:46
+ 4  Fast          double speed                about 00:41
+```
+
+Press 1 to 4, or Enter to take Normal. Every mode stops on a summary after each
+act, so you choose the pace of the playing, not of the reading.
+
+The menu can be skipped from the command line:
+
 ```bash
-python3 simulate.py              # full show, press Enter between acts
-python3 simulate.py --auto       # no stops, plays straight through (about 85 s)
+python3 simulate.py --step       # step by step
+python3 simulate.py --speed 0.5  # a speed of your own; 2 is twice as fast
 python3 simulate.py 1 3          # only acts 1 and 3
-python3 simulate.py --speed 0.5  # half speed; 2 is twice as fast
+python3 simulate.py --auto       # no menu and no stops, start to finish
 ```
 
 - Press **Ctrl+C** at any time to quit.
