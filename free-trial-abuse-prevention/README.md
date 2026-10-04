@@ -232,14 +232,22 @@ The last screen compares all four policies and stays in your terminal after the 
 Run it with no arguments and it asks how you want to watch:
 
 ```text
- 1  Step by step  every step waits for Enter    121 steps
- 2  Normal        plays itself                about 01:23
- 3  Slow          half speed                  about 02:46
- 4  Fast          double speed                about 00:41
+ 1  Step by step  ENTER forward, ← back      121 steps
+ 2  Normal        plays itself             about 01:23
+ 3  Slow          half speed               about 02:46
+ 4  Fast          double speed             about 00:41
 ```
 
 Press 1 to 4, or Enter to take Normal. Every mode stops on a summary after each
 act, so you choose the pace of the playing, not of the reading.
+
+**Step by step** moves on with Enter and goes back with **←**, **Backspace** or
+**Shift+Enter**. Going back replays pictures that were already drawn, so you can
+walk over a moment as often as you like, including back out of an act summary
+into the act it describes. Shift+Enter only reaches the program in terminals
+that report modifier keys — kitty, Ghostty, WezTerm and foot among them.
+Everywhere else Shift+Enter sends exactly what Enter sends, which is why ← and
+Backspace do the same job.
 
 The menu can be skipped from the command line:
 

@@ -14,6 +14,7 @@ After each act the show stops on a summary of what just happened and
 waits for Enter before it moves on.
 
 It asks how you want to watch: step by step, normal, slow or fast.
+Stepping moves on with Enter and back with ←, Backspace or Shift+Enter.
 
 Run:  python simulate.py              full show, Enter between acts
       python simulate.py --auto       no stops, plays straight through
@@ -49,6 +50,7 @@ try:
     from rich.padding import Padding
     from rich.panel import Panel
     from rich.progress_bar import ProgressBar
+    from rich.segment import Segment
     from rich.table import Table
     from rich.text import Text
 except ImportError:
@@ -234,8 +236,14 @@ class LogView:
 # --- Keyboard ---------------------------------------------------------------
 
 @contextmanager
-def silent_keyboard() -> Iterator[None]:
-    """Stop typed keys from being echoed over the picture (Ctrl+C still works)."""
+def silent_keyboard(*, modifiers: bool = False) -> Iterator[None]:
+    """Stop typed keys from being echoed over the picture (Ctrl+C still works).
+
+    `modifiers` asks the terminal for kitty-protocol key reports, which is the
+    only way Shift+Enter arrives as anything other than a plain Enter. A
+    terminal that does not know the request ignores it, and Shift+Enter is
+    then simply Enter, which is why ← and Backspace also step back.
+    """
     if termios is None or not sys.stdin.isatty():
         yield
         return
@@ -244,9 +252,15 @@ def silent_keyboard() -> Iterator[None]:
     quiet = termios.tcgetattr(fd)
     quiet[3] &= ~(termios.ICANON | termios.ECHO)
     termios.tcsetattr(fd, termios.TCSADRAIN, quiet)
+    if modifiers:
+        sys.stdout.write("\x1b[>1u")
+        sys.stdout.flush()
     try:
         yield
     finally:
+        if modifiers:
+            sys.stdout.write("\x1b[<u")
+            sys.stdout.flush()
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
@@ -270,6 +284,44 @@ def wait_for_enter(redraw: Callable[[], None], *, flush: bool = True) -> None:
             return
 
 
+BACK_KEYS = {
+    b"\x1b[13;2u",  # Shift+Enter, in terminals that report modifiers
+    b"\x1b[D",      # left arrow
+    b"\x7f", b"\x08",  # backspace
+    b"b", b"B",
+}
+FORWARD_KEYS = {b"\r", b"\n", b" ", b"\x1b[C"}
+
+
+def read_step(fd: int) -> str:
+    """Wait for a key and say which way the viewer wants to go."""
+    while True:
+        if not select.select([fd], [], [], 0.2)[0]:
+            continue
+        key = os.read(fd, 1)
+        if key == b"\x1b":  # an escape sequence: collect the rest of it
+            while len(key) < 16 and select.select([fd], [], [], 0.03)[0]:
+                key += os.read(fd, 1)
+                if len(key) > 2 and key[-1:].isalpha():
+                    break
+        if key in BACK_KEYS:
+            return "back"
+        if key in FORWARD_KEYS or key == b"":
+            return "next"
+
+
+class Frame:
+    """A picture that has already been drawn, kept so we can step back to it."""
+
+    def __init__(self, lines: list[list[Segment]]) -> None:
+        self.lines = lines
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        for line in self.lines:
+            yield from line
+            yield Segment.line()
+
+
 # --- How to watch -----------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -284,7 +336,7 @@ class Mode:
 
 
 MODES = [
-    Mode("1", "Step by step", "every step waits for Enter", 1.0, True),
+    Mode("1", "Step by step", "ENTER forward, ← back", 1.0, True),
     Mode("2", "Normal", "plays itself", 1.0, False),
     Mode("3", "Slow", "half speed", 0.5, False),
     Mode("4", "Fast", "double speed", 2.0, False),
@@ -309,6 +361,7 @@ def menu(rehearsal: "Show") -> RenderableType:
             rows,
             Text(),
             Text("Every mode stops on a summary after each act.", style="dim"),
+            Text("Stepping goes back with ←, Backspace or Shift+Enter.", style="dim"),
             Text.from_markup(f"[dim]Press 1-4, or Enter for {DEFAULT_MODE.name}.  Ctrl+C to quit.[/]"),
         ),
         title=f"[bold {ACCENT}]{TITLE}[/]",
@@ -368,6 +421,7 @@ class Show:
         self.stepping = stepping  # wait for Enter at every step, not just between acts
         self.steps = 0            # how many steps the whole show takes
         self.step_no = 0          # how many have gone by
+        self.history: list[Frame] = []  # every step drawn so far, for walking back
         self.recap: Recap | None = None
         self.following = ""
         self.live: Live | None = None
@@ -393,9 +447,8 @@ class Show:
         start = self.elapsed
         self.step_no += 1
         if self.live is not None and self.stepping:
-            live = self.live
             self.elapsed = start + seconds
-            wait_for_enter(lambda: live.update(self.render(), refresh=True), flush=False)
+            self.hold()
             return
         if self.live is not None:
             deadline = time.monotonic() + seconds / self.speed
@@ -414,8 +467,43 @@ class Show:
             return
         live = self.live
         self.recap, self.following = recap, following
-        wait_for_enter(lambda: live.update(self.render(), refresh=True))
+        if self.stepping:
+            self.hold()
+        else:
+            wait_for_enter(lambda: live.update(self.render(), refresh=True))
         self.recap = None
+
+    def hold(self) -> None:
+        """Draw this step, then let the viewer walk back and forth over the
+        steps already drawn. Only moving on from the newest one returns.
+
+        Earlier steps are replayed from the pictures we kept, because the
+        simulation itself has no reverse gear: the state that drew them is
+        already gone.
+        """
+        live = self.live
+        if live is None:
+            return
+        self.history.append(self.snapshot())
+        cursor = len(self.history) - 1
+        while True:
+            live.update(self.history[cursor], refresh=True)
+            if termios is None:  # Windows: a line of input, "b" to go back
+                cursor = max(0, cursor - 1) if sys.stdin.readline().strip()[:1].lower() == "b" else cursor
+                if cursor == len(self.history) - 1:
+                    return
+                continue
+            if read_step(sys.stdin.fileno()) == "back":
+                cursor = max(0, cursor - 1)
+            elif cursor == len(self.history) - 1:
+                return
+            else:
+                cursor += 1
+
+    def snapshot(self) -> Frame:
+        """Draw the screen as it looks right now and keep the result."""
+        options = self.console.options.update(height=self.console.size.height)
+        return Frame(self.console.render_lines(self.render(), options, pad=True))
 
     # -- what the acts call --
 
@@ -539,7 +627,7 @@ class Show:
         leaked.append(f"{self.leaked:<2}", style=f"bold {BAD}" if self.leaked else "bold dim")
 
         if self.verdict is None:
-            waiting = "ENTER for the next step" if self.stepping else "watching…"
+            waiting = "ENTER next · ← back" if self.stepping else "watching…"
             verdict, border = Text(f"│ {waiting}", style="dim"), "dim"
         else:
             ok, text = self.verdict
@@ -1044,7 +1132,7 @@ def main() -> int:
                 stepping=mode.stepping and stops)
     show.steps = rehearsal.step_no
     try:
-        with silent_keyboard(), Live(console=console, screen=True, auto_refresh=False) as live:
+        with silent_keyboard(modifiers=show.stepping), Live(console=console, screen=True, auto_refresh=False) as live:
             show.live = live
             play(show)
     except KeyboardInterrupt:

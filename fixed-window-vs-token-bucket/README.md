@@ -321,14 +321,22 @@ The last screen puts all five results in one table. It stays in your terminal af
 Run it with no arguments and it asks how you want to watch:
 
 ```text
- 1  Step by step  every step waits for Enter    138 steps
- 2  Normal        plays itself                about 00:50
- 3  Slow          half speed                  about 01:40
- 4  Fast          double speed                about 00:25
+ 1  Step by step  ENTER forward, ← back      138 steps
+ 2  Normal        plays itself             about 00:50
+ 3  Slow          half speed               about 01:40
+ 4  Fast          double speed             about 00:25
 ```
 
 Press 1 to 4, or Enter to take Normal. Every mode stops on a summary after each
 act, so you choose the pace of the playing, not of the reading.
+
+**Step by step** moves on with Enter and goes back with **←**, **Backspace** or
+**Shift+Enter**. Going back replays pictures that were already drawn, so you can
+walk over a moment as often as you like, including back out of an act summary
+into the act it describes. Shift+Enter only reaches the program in terminals
+that report modifier keys — kitty, Ghostty, WezTerm and foot among them.
+Everywhere else Shift+Enter sends exactly what Enter sends, which is why ← and
+Backspace do the same job.
 
 The menu can be skipped from the command line:
 
