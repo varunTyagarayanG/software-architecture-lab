@@ -13,6 +13,7 @@ These ideas come up all the time in backend work and in system-design interviews
 | # | Project | Idea it covers | Run it |
 |---|---|---|---|
 | 1 | [fixed-window-vs-token-bucket](fixed-window-vs-token-bucket/) | Protecting a login API from password guessing: fixed window counter, its boundary problem, token bucket, shared Redis state | `python3 simulate.py` |
+| 2 | [cache-database-synchronization](cache-database-synchronization/) | Keeping a cache in step with the database when data changes: update-then-delete, the stale-write race, TTL, lease tokens | `python3 simulate.py` |
 
 New projects get a row in this table and a short section below when they are added.
 
@@ -33,6 +34,23 @@ After each act it stops on a summary and waits for Enter.
 
 **Read more.** The [project README](fixed-window-vs-token-bucket/README.md) explains every idea in detail and walks through the simulation with screenshots.
 
+### 2. cache-database-synchronization
+
+**What it is.** A live terminal demo of an online store that keeps prices in a database and a fast copy in a cache, while one price changes from ₹100 to ₹200.
+
+**Why we need it.** A cache makes reads fast, but it is a second copy of the truth. If it is not kept in step with the database, customers are shown a price that no longer exists. The usual rule for keeping them in step has a race condition that is easy to miss and hard to notice in production.
+
+**How it works.** The demo runs the same price change four times against real cache code:
+
+1. **The rule**, with no overlap: update the database, then delete the cache key. Every customer sees the right price.
+2. **The race**: a slow reader fetches the old price, the update and delete happen, and the reader then writes the old price back. The cache is wrong for good.
+3. **TTL**: the same race, but the stale entry expires after 60 seconds. Five customers still see the wrong price.
+4. **Lease token**: the same race, but the delete cancels the reader's lease and the cache refuses its stale write. Nobody sees a wrong price.
+
+After each act it stops on a summary and waits for Enter.
+
+**Read more.** The [project README](cache-database-synchronization/README.md) explains every idea in detail and walks through the simulation with screenshots.
+
 ## How each project is laid out
 
 Every project lives in its own folder and follows the same shape, so you always know where to look:
@@ -50,7 +68,7 @@ You need Python 3 (tested on 3.12) and the [`rich`](https://github.com/Textualiz
 
 ```bash
 pip install rich
-cd fixed-window-vs-token-bucket
+cd fixed-window-vs-token-bucket      # or any other project folder
 python3 simulate.py
 ```
 
