@@ -14,6 +14,7 @@ These ideas come up all the time in backend work and in system-design interviews
 |---|---|---|---|
 | 1 | [fixed-window-vs-token-bucket](fixed-window-vs-token-bucket/) | Protecting a login API from password guessing: fixed window counter, its boundary problem, token bucket, shared Redis state | `python3 simulate.py` |
 | 2 | [cache-database-synchronization](cache-database-synchronization/) | Keeping a cache in step with the database when data changes: update-then-delete, the stale-write race, TTL, lease tokens | `python3 simulate.py` |
+| 3 | [free-trial-abuse-prevention](free-trial-abuse-prevention/) | Stopping people taking a free trial twice: IP limits, device fingerprinting, risk scores, challenges | `python3 simulate.py` |
 
 New projects get a row in this table and a short section below when they are added.
 
@@ -50,6 +51,23 @@ After each act it stops on a summary and waits for Enter.
 After each act it stops on a summary and waits for Enter.
 
 **Read more.** The [project README](cache-database-synchronization/README.md) explains every idea in detail and walks through the simulation with screenshots.
+
+### 3. free-trial-abuse-prevention
+
+**What it is.** A live terminal demo of ten signups arriving at a service that gives one free trial per person. Five are honest people; one person comes back five times.
+
+**Why we need it.** Every defence here is a guess about identity, and a guess can be wrong twice over: it can turn away a customer who never had a trial, or hand another free month to someone on their fifth account. Watching both error counts at once is the only way to see that a stricter rule is not automatically a better one.
+
+**How it works.** The same ten signups are run past four policies:
+
+1. **One trial per IP address**: blocks an office and a household, and misses a mobile hotspot. Three honest people blocked, two repeats let in.
+2. **Device fingerprint**: the office is fixed, but opening a second browser looks like a new device. One blocked, three let in.
+3. **Risk score**: six weak signals, weighted and added up. Every repeat stopped, but a man using his wife's laptop is denied too.
+4. **Risk score + challenge**: the uncertain middle is asked to verify a payment method. Nobody honest blocked, no repeat let in.
+
+After each act it stops on a summary and waits for Enter.
+
+**Read more.** The [project README](free-trial-abuse-prevention/README.md) explains every idea in detail and walks through the simulation with screenshots.
 
 ## How each project is laid out
 
